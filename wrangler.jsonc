@@ -1,0 +1,28 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "leaderboard-service",
+  "main": "_worker.js",
+  "compatibility_date": "2026-04-18",
+  "observability": {
+    "enabled": true
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "LEADERBOARD_ROOM",
+        "class_name": "LeaderboardRoom"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "LeaderboardRoom"
+      ]
+    }
+  ],
+  "compatibility_flags": [
+    "nodejs_compat"
+  ]
+}
