@@ -87,6 +87,12 @@ export class LeaderboardRoom {
       return new Response(JSON.stringify({ ok: true, scores: result }), { status: 200, headers });
     }
 
+    if (method === 'DELETE') {
+      // Admin: clear all scores for this gameId
+      await this.state.storage.put('scores', []);
+      return new Response(JSON.stringify({ ok: true, action: 'cleared' }), { status: 200, headers });
+    }
+
     return new Response(JSON.stringify({ error: 'method not allowed' }), { status: 405, headers });
   }
 }
