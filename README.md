@@ -1,49 +1,52 @@
 # Leaderboard Service
 
-Shared leaderboard backend for token demo games like Pong and future games.
+Shared leaderboard backend for any game, with Nostr identity and attrition.
 
-## Stage 1 goal
-
-Create one standalone service that any game can call for shared scores.
-
-This repo is intentionally separate from any one game repo.
-
-## Intended flow
-
-- each game uses its own `gameId`
-- game clients submit scores to this service
-- clients fetch a shared leaderboard for that `gameId`
-- later we swap manual player names for Nostr `npub`
-- later we can publish leaderboard snapshots to Nostr periodically
-
-## API draft
+## API
 
 ### Get leaderboard for a game
 
 `GET /api/leaderboards/:gameId`
 
 Response:
-
 ```json
 {
-  "gameId": "pong",
+  "gameId": "aipong",
   "scores": [
     {
       "playerId": "ALICE",
       "displayName": "ALICE",
       "score": 42,
-      "recordedAt": "2026-04-18T17:00:00.000Z"
+      "recordedAt": "2026-05-01T12:00:00.000Z",
+      "source": "anonymous",
+      "nostrNpub": null,
+      "ageMs": 777600000,
+      "dead": true
+    },
+    {
+      "playerId": "npub1...",
+      "displayName": "BOB",
+      "score": 30,
+      "recordedAt": "2026-05-10T12:00:00.000Z",
+      "source": "nostr",
+      "nostrNpub": "npub1...",
+      "ageMs": 0,
+      "dead": false
     }
   ]
 }
 ```
+
+- `source`: `"nostr"` or `"anonymous"`
+- `nostrNpub`: the player's npub if sourced from Nostr, `null` otherwise
+- `ageMs`: milliseconds since the score was recorded
+- `dead`: `true` for anonymous entries older than 7 days (Nostr entries never die)
 
 ### Submit a score
 
 `POST /api/leaderboards/:gameId/scores`
 
 Request body:
-
 ```json
 {
   "playerId": "ALICE",
@@ -52,18 +55,54 @@ Request body:
 }
 ```
 
-For now `playerId` and `displayName` can both be a typed-in name.
-Later `playerId` will become the player's `npub` and `displayName` can be hydrated from profile data.
+For Nostr players, include `nostrNpub`:
+```json
+{
+  "playerId": "npub1...",
+  "displayName": "BOB",
+  "score": 30,
+  "nostrNpub": "npub1..."
+}
+```
 
-## Storage approach
+## Attrition
 
-This scaffold uses one Durable Object namespace and one object per game id.
-That gives us one shared leaderboard per game.
+- **Nostr entries**: live forever, shown with a green tint and full opacity
+- **Anonymous entries**: color-shift green → yellow → red over 7 days, then marked `dead`
+- Use the client module's `computeAttrition()` to get `{ color, opacity, dead }`
 
-## Current status
+## Client Module
 
-- repo separated from Pong and from cliffellaweb
-- generic API shape defined
-- worker scaffold created
-- not deployed yet
-- not wired into Pong yet
+```js
+import { submitScore, fetchLeaderboard } from './src/leaderboard.js';
+
+// Anonymous player
+await submitScore(BASE_URL, 'aipong', 'ALICE', 42);
+
+// Nostr player — pass npub, it resolves the name automatically
+await submitScore(BASE_URL, 'aipong', 'npub1...', 21);
+
+// Fetch with attrition colors baked in
+const lb = await fetchLeaderboard(BASE_URL, 'aipong');
+// lb.scores[n].attrition = { color: '#00ff88', opacity: 1, dead: false }
+```
+
+### Functions
+
+| Function | Description |
+|---|---|
+| `isNpub(input)` | Returns `true` if input looks like an npub |
+| `resolveNpub(npub)` | Fetches display name from Nostr profile |
+| `submitScore(baseUrl, gameId, name, score)` | Auto-detects npub, resolves name, submits |
+| `fetchLeaderboard(baseUrl, gameId)` | Fetches scores with attrition colors |
+| `computeAttrition(entry)` | Returns `{ color, opacity, dead }` from raw entry |
+
+## Deployment
+
+```bash
+npx wrangler deploy
+```
+
+## Storage
+
+One Durable Object per `gameId`. Top 50 scores by score descending.
