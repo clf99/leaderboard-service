@@ -185,7 +185,7 @@ export async function submitScore(baseUrl, gameId, name, score, options = {}) {
   if (isNpub(rawName)) {
     // Resolve from Nostr
     const resolved = await resolveNpub(rawName);
-    displayName = resolved ? sanitize(resolved) : playerId;
+    displayName = resolved ? sanitize(resolved) : 'NOSTR';
     nostrNpub = rawName;
   }
 
