@@ -62,8 +62,52 @@ export function isNpub(input) {
 }
 
 // --- Nostr profile resolution ---
+// Queries multiple relays via WebSocket with fallback chain.
+// No external API dependency — works as long as one relay responds.
 
-const NOSTR_BAND = 'https://api.nostr.band/v0/profile';
+const NOSTR_RELAYS = [
+  'wss://relay.damus.io',
+  'wss://nos.lol',
+  'wss://relay.nostr.band',
+  'wss://pyramid.fiatjaf.xyz',
+];
+
+function relayQueryName(hex, relay) {
+  return new Promise((resolve) => {
+    let cleaned = false;
+    const cleanup = (name) => {
+      if (cleaned) return;
+      cleaned = true;
+      ws.close();
+      clearTimeout(timer);
+      resolve(name);
+    };
+
+    const ws = new WebSocket(relay);
+    const timer = setTimeout(() => cleanup(null), 6000);
+
+    ws.onopen = () => {
+      ws.send(JSON.stringify([
+        'REQ', 'profile-' + hex.slice(0, 8),
+        { kinds: [0], authors: [hex], limit: 1 }
+      ]));
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const [type, subId, data] = JSON.parse(event.data);
+        if (type === 'EVENT' && data?.kind === 0) {
+          const content = typeof data.content === 'string' ? JSON.parse(data.content) : data.content;
+          const name = content?.display_name || content?.name || content?.nip05?.split('@')[0] || null;
+          if (name) cleanup(name);
+        }
+        if (type === 'EOSE') cleanup(null);
+      } catch {}
+    };
+
+    ws.onerror = () => cleanup(null);
+  });
+}
 
 export async function resolveNpub(npub) {
   let hex;
@@ -73,19 +117,13 @@ export async function resolveNpub(npub) {
     return null;
   }
 
-  try {
-    const res = await fetch(`${NOSTR_BAND}/${hex}`, { cache: 'no-store' });
-    if (!res.ok) return null;
-    const data = await res.json();
-
-    // nostr.band returns { profiles: { [hex]: { content: { ... } } } }
-    const profile = data?.profiles?.[hex]?.content;
-    if (!profile) return null;
-
-    return profile.display_name || profile.name || profile.nip05?.split('@')[0] || null;
-  } catch {
-    return null;
+  // Try relays in sequence until one succeeds
+  for (const relay of NOSTR_RELAYS) {
+    const name = await relayQueryName(hex, relay);
+    if (name) return name;
   }
+
+  return null;
 }
 
 // --- Attrition color ---
